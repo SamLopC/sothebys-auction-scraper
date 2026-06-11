@@ -1,0 +1,20 @@
+# Environment / secrets
+.env
+.token_cache.json
+.browser_profile/
+.browser_profile_chrome/
+
+# Virtual environment
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Output data
+data/*.csv
+
+# OS
+.DS_Store
