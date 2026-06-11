@@ -40,3 +40,6 @@ REQUEST_DELAY_SECONDS = 1.0
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 3
 LOTS_PAGE_SIZE = 50
+
+# Default cap on total lots scraped (0 = no limit). Override via --limit.
+DEFAULT_RESULT_LIMIT = 10

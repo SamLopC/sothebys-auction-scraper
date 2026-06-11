@@ -99,9 +99,11 @@ SOTHEBYS_BEARER_TOKEN=eyJhbGciOi...
 # Scrape Impressionist & Modern Art (default department)
 python -m sothebys_scraper --department impressionist-modern-art
 
-# Test with a small sample first
-python -m sothebys_scraper --department impressionist-modern-art \
-    --max-pages 1 --max-auctions 2 -v
+# Test with a small sample first (default limit is 10 lots)
+python -m sothebys_scraper --department impressionist-modern-art --limit 10
+
+# Full scrape — remove the lot cap
+python -m sothebys_scraper --department impressionist-modern-art --limit 0
 
 # All departments
 python -m sothebys_scraper --department all
@@ -130,12 +132,19 @@ A CSV in `data/` with one row per lot:
 | `lot_number`     | Display lot number |
 | `title`          | Lot/artwork title |
 | `artist`         | Creator / artist |
+| `category`       | Object type(s), e.g. `Painting`, `Sculpture` |
 | `url`            | Canonical lot URL |
 | `currency`       | Sale currency (e.g. USD) |
 | `low_estimate`   | Low estimate |
 | `high_estimate`  | High estimate |
 | `sold`           | `yes` / `no` / `hidden` |
 | `hammer_price`   | Final price when visible |
+
+## Tuning
+
+Edit `DEFAULT_RESULT_LIMIT` in `src/sothebys_scraper/config.py` to change the
+default lot cap (currently **10**). Use `--limit 0` on the CLI for an unlimited
+full scrape.
 
 ## Notes & etiquette
 

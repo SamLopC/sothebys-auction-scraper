@@ -38,6 +38,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after scraping this many auctions (default: all)",
     )
     parser.add_argument(
+        "--limit",
+        type=int,
+        default=config.DEFAULT_RESULT_LIMIT,
+        help=(
+            "Max total lots to scrape (default: %(default)s from config.py). "
+            "Use 0 for no limit."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=None,
@@ -82,10 +91,16 @@ def main(argv: list[str] | None = None) -> int:
 
     client = GraphQLClient(token)
     all_lots = []
+    remaining = None if args.limit == 0 else args.limit
     for index, auction in enumerate(auctions, start=1):
+        if remaining is not None and remaining <= 0:
+            break
         log.info("[%d/%d] %s", index, len(auctions), auction.url)
         try:
-            all_lots.extend(scrape_auction_lots(client, auction))
+            batch = scrape_auction_lots(client, auction, remaining=remaining)
+            all_lots.extend(batch)
+            if remaining is not None:
+                remaining -= len(batch)
         except Exception:
             log.exception("Failed to scrape %s, continuing", auction.url)
         time.sleep(config.REQUEST_DELAY_SECONDS)

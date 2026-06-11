@@ -33,6 +33,17 @@ query AuctionIdBySlug($name: String!, $year: String!) {
 }
 """
 
+LOT_DETAIL_QUERY = """
+query LotDetail($lotId: String!) {
+  lotV2(lotId: $lotId) {
+    __typename
+    ... on LotV2 {
+      objects { objectTypeName }
+    }
+  }
+}
+"""
+
 LOT_CARDS_QUERY = """
 query LotCardsFilterByPaginated(
   $id: String!, $filter: LotCardsConnectionFilter!,
@@ -83,6 +94,7 @@ class Lot:
     lot_number: str
     title: str
     artist: str
+    category: str
     url: str
     currency: str
     low_estimate: str
@@ -138,7 +150,39 @@ def _lot_url(auction: AuctionRef, lot_slug: str | None, lot_id: str) -> str:
     return f"{config.BASE_URL}/en/buy/auction/{auction.year}/{auction.slug}?lotId={lot_id}"
 
 
-def _parse_lot(raw: dict, auction: AuctionRef, auction_title: str) -> Lot:
+def _fetch_category(client: GraphQLClient, lot_id: str) -> str:
+    """Fetch object-type categories for a lot (e.g. Painting, Sculpture)."""
+    try:
+        data = client.execute(
+            "LotDetail",
+            LOT_DETAIL_QUERY,
+            {"lotId": lot_id},
+        )
+        lot = data.get("lotV2") or {}
+        names = [
+            obj.get("objectTypeName", "")
+            for obj in (lot.get("objects") or [])
+            if obj.get("objectTypeName")
+        ]
+        # Preserve order, drop duplicates (e.g. two "Painting" objects).
+        seen: set[str] = set()
+        unique = []
+        for name in names:
+            if name not in seen:
+                seen.add(name)
+                unique.append(name)
+        return "; ".join(unique)
+    except Exception as exc:
+        log.debug("Could not fetch category for lot %s: %s", lot_id, exc)
+        return ""
+
+
+def _parse_lot(
+    raw: dict,
+    auction: AuctionRef,
+    auction_title: str,
+    category: str = "",
+) -> Lot:
     estimate = raw.get("estimateV2") or {}
     low = (estimate.get("lowEstimate") or {}).get("amount", "") or ""
     high = (estimate.get("highEstimate") or {}).get("amount", "") or ""
@@ -163,6 +207,7 @@ def _parse_lot(raw: dict, auction: AuctionRef, auction_title: str) -> Lot:
         lot_number=lot_number,
         title=raw.get("title", "") or "",
         artist=raw.get("creatorsDisplayTitle", "") or "",
+        category=category,
         url=_lot_url(auction, (raw.get("slug") or {}).get("lotSlug"), raw.get("lotId", "")),
         currency=currency,
         low_estimate=low,
@@ -172,8 +217,16 @@ def _parse_lot(raw: dict, auction: AuctionRef, auction_title: str) -> Lot:
     )
 
 
-def scrape_auction_lots(client: GraphQLClient, auction: AuctionRef) -> list[Lot]:
-    """Resolve an auction and page through all of its lots."""
+def scrape_auction_lots(
+    client: GraphQLClient,
+    auction: AuctionRef,
+    remaining: int | None = None,
+) -> list[Lot]:
+    """Resolve an auction and page through its lots.
+
+    Args:
+        remaining: stop after collecting this many lots (None = no cap).
+    """
     meta = client.execute(
         "AuctionIdBySlug",
         AUCTION_ID_QUERY,
@@ -204,11 +257,20 @@ def scrape_auction_lots(client: GraphQLClient, auction: AuctionRef) -> list[Lot]
         connection = ((data.get("auction") or {}).get("lotCards")) or {}
         raw_lots = connection.get("lots") or []
         for raw in raw_lots:
-            lots.append(_parse_lot(raw, auction, auction_title))
+            if remaining is not None and remaining <= 0:
+                break
+            lot_id = raw.get("lotId", "")
+            category = _fetch_category(client, lot_id) if lot_id else ""
+            lots.append(_parse_lot(raw, auction, auction_title, category))
+            if remaining is not None:
+                remaining -= 1
+            time.sleep(config.REQUEST_DELAY_SECONDS * 0.25)
 
         total = connection.get("totalCount", len(lots))
         log.info("    %s: %d/%s lots", auction.slug, len(lots), total)
 
+        if remaining is not None and remaining <= 0:
+            break
         if not connection.get("hasNextPage") or not raw_lots:
             break
         offset += config.LOTS_PAGE_SIZE
